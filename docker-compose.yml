@@ -1,0 +1,46 @@
+# ================================================================
+# DOCKER COMPOSE - Production deployment on EC2
+# Run with: docker-compose up -d
+# ================================================================
+
+version: '3.8'
+
+services:
+
+  # ──────────────────────────────────────
+  # Spring Boot API - Port 8081
+  # ──────────────────────────────────────
+  shranvi-api:
+    image: yourdockerhubusername/shranvi-products-api:latest
+    container_name: shranvi-api
+    restart: unless-stopped
+    ports:
+      - "8081:8081"          # 8081 on host maps to 8081 in container
+                             # Flask still runs separately on 5000
+    environment:
+      - SPRING_PROFILES_ACTIVE=production
+      - JAVA_OPTS=-Xmx512m -Xms256m
+    volumes:
+      # Persist logs outside container
+      - /var/log/shranvi-api:/var/log/shranvi-api
+      # Mount config file (optional - override application.properties)
+      # - ./application-production.properties:/app/config/application.properties
+    networks:
+      - shranvi-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider",
+             "http://localhost:8081/api/v1/products/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  shranvi-network:
+    driver: bridge
+    name: shranvi-network
