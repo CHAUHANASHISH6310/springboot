@@ -11,7 +11,7 @@ services:
   # Spring Boot API - Port 8081
   # ──────────────────────────────────────
   shranvi-api:
-    image: yourdockerhubusername/shranvi-products-api:latest
+    image: ashish6310/shranvi-products-api:latest
     container_name: shranvi-api
     restart: unless-stopped
     ports:
