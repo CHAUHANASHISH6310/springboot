@@ -307,78 +307,158 @@ pipeline {
         // STAGE 9: DEPLOY TO EC2
         // SSH into EC2 server, pull new image, restart container
         // ----------------------------------------------------------
-        stage('🚀 Deploy to EC2') {
-            steps {
-                echo '=== Deploying to EC2 server ==='
+stage('🚀 Deploy to EC2') {
+    steps {
+        echo '=== Deploying to EC2 server ==='
 
-                withCredentials([sshUserPrivateKey(
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: env.EC2_SSH_KEY,
+                keyFileVariable: 'SSH_KEY'
+            )
+        ]) {
+
+            sh """
+                set -xe
+
+                echo "=================================="
+                echo "STEP 1 - Test SSH Connection"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "hostname"
+
+                echo "=================================="
+                echo "STEP 2 - Create Deploy Directory"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "
+                    sudo mkdir -p ${DEPLOY_DIR}
+                    sudo chown ${EC2_USER}:${EC2_USER} ${DEPLOY_DIR}
+                    chmod 755 ${DEPLOY_DIR}
+                    ls -ld ${DEPLOY_DIR}
+                    "
+
+                echo "=================================="
+                echo "STEP 3 - Copy Docker Compose File"
+                echo "=================================="
+
+                scp -v \
+                    -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    docker-compose.yml \
+                    ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
+
+                echo "=================================="
+                echo "STEP 4 - Verify Docker"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "
+                    docker --version
+                    docker ps
+                    "
+
+                echo "=================================="
+                echo "STEP 5 - Pull Latest Image"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "
+                    docker pull ${DOCKER_IMAGE}:latest
+                    "
+
+                echo "=================================="
+                echo "STEP 6 - Stop Old Container"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "
+                    docker stop shranvi-api || true
+                    docker rm shranvi-api || true
+                    "
+
+                echo "=================================="
+                echo "STEP 7 - Start New Container"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "
+                    docker run -d \
+                        --name shranvi-api \
+                        --restart unless-stopped \
+                        -p 8081:8081 \
+                        -e SPRING_PROFILES_ACTIVE=production \
+                        -v /var/log/shranvi-api:/var/log/shranvi-api \
+                        ${DOCKER_IMAGE}:latest
+                    "
+
+                echo "=================================="
+                echo "STEP 8 - Wait For Startup"
+                echo "=================================="
+
+                sleep 30
+
+                echo "=================================="
+                echo "STEP 9 - Health Check"
+                echo "=================================="
+
+                ssh -o StrictHostKeyChecking=no \
+                    -i \$SSH_KEY \
+                    ${EC2_USER}@${EC2_HOST} \
+                    "
+                    curl -v http://localhost:8081/api/v1/products/health
+                    "
+
+                echo "=================================="
+                echo "DEPLOYMENT SUCCESSFUL"
+                echo "=================================="
+            """
+        }
+    }
+
+    post {
+        failure {
+            echo '===== DEPLOYMENT FAILED ====='
+
+            withCredentials([
+                sshUserPrivateKey(
                     credentialsId: env.EC2_SSH_KEY,
-                    keyFileVariable: 'SSH_KEY',
-                    usernameVariable: 'SSH_USER'
-                )]) {
-                    script {
-                        try {
-                            sh '''
-                                set -e
+                    keyFileVariable: 'SSH_KEY'
+                )
+            ]) {
 
-                                echo "📤 Copying docker-compose.yml to EC2..."
-                                scp -i $SSH_KEY -o StrictHostKeyChecking=no \
-                                    docker-compose.yml \
-                                    ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
+                sh """
+                    ssh -o StrictHostKeyChecking=no \
+                        -i \$SSH_KEY \
+                        ${EC2_USER}@${EC2_HOST} '
+                            echo "===== RUNNING CONTAINERS ====="
+                            docker ps -a
 
-                                echo "🔗 Connecting to EC2 and deploying..."
-                                ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
-                                    ${EC2_USER}@${EC2_HOST} \
-                                    "DOCKER_IMAGE='${DOCKER_IMAGE}' DEPLOY_DIR='${DEPLOY_DIR}' bash -s" << 'ENDSSH'
-                                    set -e
+                            echo "===== CONTAINER LOGS ====="
+                            docker logs --tail 100 shranvi-api || true
 
-                                    cd "$DEPLOY_DIR"
-
-                                    echo "📥 Pulling latest Docker image: $DOCKER_IMAGE:latest"
-                                    docker pull "$DOCKER_IMAGE":latest
-
-                                    echo "🛑 Stopping old container (if running)..."
-                                    docker stop shranvi-api 2>/dev/null || true
-                                    docker rm shranvi-api 2>/dev/null || true
-
-                                    echo "▶️ Starting new container on port 8081..."
-                                    docker run -d \
-                                        --name shranvi-api \
-                                        --restart unless-stopped \
-                                        -p 8081:8081 \
-                                        -e SPRING_PROFILES_ACTIVE=production \
-                                        -v /var/log/shranvi-api:/var/log/shranvi-api \
-                                        "$DOCKER_IMAGE":latest
-
-                                    echo "⏳ Waiting for app to start (30 seconds)..."
-                                    sleep 30
-
-                                    echo "🏥 Health check..."
-                                    if ! curl -sf http://localhost:8081/api/v1/products/health; then
-                                        echo "❌ Health check failed. Container logs:"
-                                        docker logs --tail 50 shranvi-api
-                                        exit 1
-                                    fi
-
-                                    echo "✅ Deployment SUCCESSFUL! App running on port 8081"
-                                    docker ps | grep shranvi
-ENDSSH
-                            '''
-                        } catch (err) {
-                            echo "❌ Deploy to EC2 FAILED: ${err}"
-                            sh '''
-                                echo "🔍 Attempting to fetch remote container logs for diagnosis..."
-                                ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
-                                    ${EC2_USER}@${EC2_HOST} \
-                                    "docker logs --tail 100 shranvi-api 2>&1 || echo 'Container not found / not running'"
-                            '''
-                            error("Deployment stage failed — see logs above for root cause.")
-                        }
-                    }
-                }
+                            echo "===== PORTS ====="
+                            sudo netstat -tulpn | grep 8081 || true
+                        '
+                """
             }
         }
-        // ----------------------------------------------------------
+    }
+}        // ----------------------------------------------------------
         // STAGE 10: SMOKE TEST
         // Quick test to verify deployment is working
         // ----------------------------------------------------------
