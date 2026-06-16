@@ -303,60 +303,81 @@ pipeline {
         // STAGE 9: DEPLOY TO EC2
         // SSH into EC2 server, pull new image, restart container
         // ----------------------------------------------------------
+// ----------------------------------------------------------
+        // STAGE 9: DEPLOY TO EC2
+        // SSH into EC2 server, pull new image, restart container
+        // ----------------------------------------------------------
         stage('🚀 Deploy to EC2') {
             steps {
                 echo '=== Deploying to EC2 server ==='
-                
-                // Use the EC2 SSH private key from Jenkins credentials
+
                 withCredentials([sshUserPrivateKey(
                     credentialsId: env.EC2_SSH_KEY,
                     keyFileVariable: 'SSH_KEY',
                     usernameVariable: 'SSH_USER'
                 )]) {
-                    sh '''
-                        # Copy deployment script to EC2
-                        scp -i $SSH_KEY -o StrictHostKeyChecking=no \
-                            docker-compose.yml \
-                            ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
+                    script {
+                        try {
+                            sh '''
+                                set -e
 
-                        # SSH into EC2 and run deployment commands
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
-                            ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
-                            
-                            set -e  # Exit on any error
-                            
-                            cd /opt/shranvi-api
-                            
-                            echo "📥 Pulling latest Docker image..."
-                            docker pull ${DOCKER_IMAGE}:latest
-                            
-                            echo "🛑 Stopping old container (if running)..."
-                            docker stop shranvi-api 2>/dev/null || true
-                            docker rm shranvi-api 2>/dev/null || true
-                            
-                            echo "▶️ Starting new container on port 8081..."
-                            docker run -d \
-                                --name shranvi-api \
-                                --restart unless-stopped \
-                                -p 8081:8081 \
-                                -e SPRING_PROFILES_ACTIVE=production \
-                                -v /var/log/shranvi-api:/var/log/shranvi-api \
-                                ${DOCKER_IMAGE}:latest
-                            
-                            echo "⏳ Waiting for app to start (30 seconds)..."
-                            sleep 30
-                            
-                            echo "🏥 Health check..."
-                            curl -f http://localhost:8081/api/v1/products/health || exit 1
-                            
-                            echo "✅ Deployment SUCCESSFUL! App running on port 8081"
-                            docker ps | grep shranvi
+                                echo "📤 Copying docker-compose.yml to EC2..."
+                                scp -i $SSH_KEY -o StrictHostKeyChecking=no \
+                                    docker-compose.yml \
+                                    ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
+
+                                echo "🔗 Connecting to EC2 and deploying..."
+                                ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
+                                    ${EC2_USER}@${EC2_HOST} \
+                                    "DOCKER_IMAGE='${DOCKER_IMAGE}' DEPLOY_DIR='${DEPLOY_DIR}' bash -s" << 'ENDSSH'
+                                    set -e
+
+                                    cd "$DEPLOY_DIR"
+
+                                    echo "📥 Pulling latest Docker image: $DOCKER_IMAGE:latest"
+                                    docker pull "$DOCKER_IMAGE":latest
+
+                                    echo "🛑 Stopping old container (if running)..."
+                                    docker stop shranvi-api 2>/dev/null || true
+                                    docker rm shranvi-api 2>/dev/null || true
+
+                                    echo "▶️ Starting new container on port 8081..."
+                                    docker run -d \
+                                        --name shranvi-api \
+                                        --restart unless-stopped \
+                                        -p 8081:8081 \
+                                        -e SPRING_PROFILES_ACTIVE=production \
+                                        -v /var/log/shranvi-api:/var/log/shranvi-api \
+                                        "$DOCKER_IMAGE":latest
+
+                                    echo "⏳ Waiting for app to start (30 seconds)..."
+                                    sleep 30
+
+                                    echo "🏥 Health check..."
+                                    if ! curl -sf http://localhost:8081/api/v1/products/health; then
+                                        echo "❌ Health check failed. Container logs:"
+                                        docker logs --tail 50 shranvi-api
+                                        exit 1
+                                    fi
+
+                                    echo "✅ Deployment SUCCESSFUL! App running on port 8081"
+                                    docker ps | grep shranvi
 ENDSSH
-                    '''
+                            '''
+                        } catch (err) {
+                            echo "❌ Deploy to EC2 FAILED: ${err}"
+                            sh '''
+                                echo "🔍 Attempting to fetch remote container logs for diagnosis..."
+                                ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
+                                    ${EC2_USER}@${EC2_HOST} \
+                                    "docker logs --tail 100 shranvi-api 2>&1 || echo 'Container not found / not running'"
+                            '''
+                            error("Deployment stage failed — see logs above for root cause.")
+                        }
+                    }
                 }
             }
         }
-
         // ----------------------------------------------------------
         // STAGE 10: SMOKE TEST
         // Quick test to verify deployment is working
