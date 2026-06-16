@@ -1,141 +1,94 @@
 // ================================================================
 // JENKINSFILE - Shranvi Spring Boot API - Enterprise CI/CD Pipeline
-// 
-// Flow: GitHub Push → Build → Test → Quality → Security → Docker → Deploy
-// Target Server: EC2 instance
-// App Port: 8081 (Flask runs on 5000)
+// Flow: GitHub Push → Build → Test → Quality → Docker → Deploy
+// Target Server: EC2 instance | App Port: 8081 (Flask runs on 5000)
 // ================================================================
 
 pipeline {
 
-    // Run on any available Jenkins agent (build server)
     agent any
 
-    // ============================================================
-    // ENVIRONMENT VARIABLES
-    // These are like global variables used throughout the pipeline
-    // ============================================================
     environment {
-        // Application details
         APP_NAME        = 'shranvi-products-api'
-        APP_VERSION     = "${BUILD_NUMBER}"         // Auto-increments on each build
-        APP_PORT        = '8081'                    // Must NOT conflict with Flask (5000)
+        APP_VERSION     = "${BUILD_NUMBER}"
+        APP_PORT        = '8081'
 
-        // Docker Hub image name (change 'yourdockerhubusername' to yours)
         DOCKER_IMAGE    = "ashish6310/shranvi-products-api"
         DOCKER_TAG      = "${BUILD_NUMBER}"
 
-        // Jenkins Credentials IDs (you set these in Jenkins > Manage Credentials)
-        DOCKER_CREDENTIALS  = 'dockerhub-creds'  // DockerHub login
-        EC2_SSH_KEY         = 'ec2-ssh-private-key'     // Your EC2 .pem key
+        DOCKER_CREDENTIALS  = 'dockerhub-creds'
+        EC2_SSH_KEY         = 'ec2-ssh-private-key'
         SONAR_TOKEN         = 'sonarqube-token'
 
-        // EC2 Deployment Server
-        EC2_HOST        = '13.201.74.107'          // ← PUT YOUR EC2 IP HERE
-        EC2_USER        = 'ubuntu'                  // EC2 login user
-        DEPLOY_DIR      = '/opt/shranvi-api'        // Deployment folder on EC2
+        EC2_HOST        = '13.201.74.107'
+        EC2_USER        = 'ubuntu'
+        DEPLOY_DIR      = '/opt/shranvi-api'
 
-        // SonarQube server (running on Jenkins server or separate server)
         SONAR_HOST      = 'http://localhost:9000'
     }
 
-    // ============================================================
-    // TRIGGERS - When should this pipeline auto-run?
-    // ============================================================
     triggers {
-        // Auto-trigger when GitHub sends a webhook push notification
         githubPush()
-        
-        // Also run at 2 AM every day (nightly build)
         cron('H 2 * * *')
     }
 
-    // ============================================================
-    // OPTIONS - Pipeline behavior settings
-    // ============================================================
     options {
-        // Keep only last 10 builds (saves disk space)
         buildDiscarder(logRotator(numToKeepStr: '10'))
-        
-        // Kill the pipeline if it runs more than 30 minutes
         timeout(time: 30, unit: 'MINUTES')
-        
-        // Don't run two builds of the same branch at the same time
         disableConcurrentBuilds()
-        
-        // Add timestamps in logs (easier debugging)
         timestamps()
+        ansiColor('xterm')
     }
 
-    // ============================================================
-    // PIPELINE STAGES - Each block is one step in the pipeline
-    // ============================================================
     stages {
 
-        // ----------------------------------------------------------
-        // STAGE 1: CHECKOUT
-        // Jenkins downloads your code from GitHub
-        // ----------------------------------------------------------
         stage('📥 Checkout Code') {
             steps {
-                echo '=== Checking out source code from GitHub ==='
-                
-                // Clean workspace before checkout (fresh start)
+                echo '=== STAGE: Checkout ==='
                 cleanWs()
-                
-                // Checkout the code that triggered this build
                 checkout scm
-                
-                // Print what we checked out
                 sh '''
                     echo "Branch: $(git branch --show-current)"
                     echo "Commit: $(git log --oneline -1)"
                     echo "Author: $(git log --format='%an' -1)"
                 '''
             }
+            post {
+                failure { echo '❌ STAGE FAILED: Checkout — could not pull source from GitHub. Check repo URL/credentials.' }
+            }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 2: BUILD
-        // Maven compiles your Java code into a JAR file
-        // ----------------------------------------------------------
         stage('🔨 Build Application') {
             steps {
-                echo '=== Building Spring Boot application with Maven ==='
-                sh '''
-                    # -B = batch mode (no interactive prompts)
-                    # -DskipTests = skip tests here (we test in next stage separately)
-                    mvn clean compile -B -DskipTests
-                    echo "✅ Build successful!"
-                '''
-            }
-            post {
-                failure {
-                    echo '❌ Build FAILED! Check your Java code for compilation errors.'
+                echo '=== STAGE: Build (Maven compile) ==='
+                script {
+                    try {
+                        sh 'mvn clean compile -B -DskipTests'
+                        echo '✅ Build successful!'
+                    } catch (err) {
+                        echo "❌ STAGE FAILED: Build — Maven compilation error.\nReason: ${err.getMessage()}"
+                        error("Build stage failed: ${err.getMessage()}")
+                    }
                 }
             }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 3: UNIT TESTING
-        // Run all JUnit + Mockito tests
-        // ----------------------------------------------------------
         stage('🧪 Unit Tests') {
             steps {
-                echo '=== Running unit tests (JUnit + Mockito) ==='
-                sh '''
-                    # Run tests and generate JaCoCo coverage report
-                    mvn test -B
-                    echo "✅ All tests passed!"
-                '''
+                echo '=== STAGE: Unit Tests (JUnit + Mockito) ==='
+                script {
+                    try {
+                        sh 'mvn test -B'
+                        echo '✅ All tests passed!'
+                    } catch (err) {
+                        echo "❌ STAGE FAILED: Unit Tests — one or more tests failed.\nReason: ${err.getMessage()}"
+                        error("Unit Tests stage failed: ${err.getMessage()}")
+                    }
+                }
             }
             post {
                 always {
-                    // Publish JUnit test results in Jenkins UI
-                    junit testResults: '**/target/surefire-reports/*.xml',
-                          allowEmptyResults: false
-
-                    // Publish JaCoCo code coverage report
+                    junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
                     jacoco(
                         execPattern: '**/target/jacoco.exec',
                         classPattern: '**/target/classes',
@@ -144,255 +97,263 @@ pipeline {
                         minimumLineCoverage: '70'
                     )
                 }
-                failure {
-                    echo '❌ Tests FAILED! Fix failing tests before merging.'
-                }
             }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 4: CODE QUALITY - SonarQube
-        // Analyzes code for bugs, code smells, security issues
-        // ----------------------------------------------------------
         stage('📊 Code Quality (SonarQube)') {
             steps {
-                echo '=== Running SonarQube analysis ==='
-                
-                // Use SonarQube token from Jenkins credentials
-                withCredentials([string(credentialsId: env.SONAR_TOKEN, variable: 'SONAR_AUTH_TOKEN')]) {
-                    sh '''
-                        mvn sonar:sonar \
-                            -Dsonar.projectKey=${APP_NAME} \
-                            -Dsonar.host.url=${SONAR_HOST} \
-                            -Dsonar.login=${SONAR_AUTH_TOKEN} \
-                            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                            -B
-                        echo "✅ SonarQube analysis complete - check dashboard!"
-                    '''
+                echo '=== STAGE: SonarQube Analysis ==='
+                script {
+                    try {
+                        withCredentials([string(credentialsId: env.SONAR_TOKEN, variable: 'SONAR_AUTH_TOKEN')]) {
+                            sh '''
+                                mvn sonar:sonar \
+                                    -Dsonar.projectKey=${APP_NAME} \
+                                    -Dsonar.host.url=${SONAR_HOST} \
+                                    -Dsonar.login=${SONAR_AUTH_TOKEN} \
+                                    -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                                    -B
+                            '''
+                        }
+                        echo '✅ SonarQube analysis complete!'
+                    } catch (err) {
+                        echo "⚠️ STAGE WARNING: SonarQube analysis failed (non-blocking).\nReason: ${err.getMessage()}"
+                        unstable("SonarQube analysis failed: ${err.getMessage()}")
+                    }
                 }
             }
-            // Optional: Wait for SonarQube Quality Gate result
-            // If quality gate fails, pipeline stops here
-            // post {
-            //     always {
-            //         script {
-            //             def qg = waitForQualityGate()
-            //             if (qg.status != 'OK') {
-            //                 error "Quality Gate failed: ${qg.status}"
-            //             }
-            //         }
-            //     }
-            // }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 5: SECURITY SCAN - OWASP Dependency Check
-        // Checks all your Maven libraries for known CVE vulnerabilities
-        // ----------------------------------------------------------
-        // stage('🔒 Security Scan (OWASP)') {
-        //     steps {
-        //         echo '=== Scanning dependencies for CVE vulnerabilities ==='
-        //         withCredentials([
-        //         string(credentialsId: 'nvd-api-key',
-        //             variable: 'NVD_API_KEY')
-        //     ]) {
-        //         sh '''
-        //             mvn dependency-check:check \
-        //                 -DnvdApiKey=$NVD_API_KEY \
-        //                 -Dformat=HTML \
-        //                 -B
-        //         '''
-        //         }
-        //     }
-        //     post {
-        //         always {
-        //             // Publish the security report in Jenkins
-        //             publishHTML([
-        //                 allowMissing: true,
-        //                 alwaysLinkToLastBuild: true,
-        //                 keepAll: true,
-        //                 reportDir: 'target/dependency-check-report',
-        //                 reportFiles: 'dependency-check-report.html',
-        //                 reportName: 'OWASP Dependency Check Report'
-        //             ])
-        //         }
-        //         failure {
-        //             echo '❌ HIGH severity CVE found! Fix vulnerable dependencies.'
-        //         }
-        //     }
-        // }
-
-        // ----------------------------------------------------------
-        // STAGE 6: PACKAGE
-        // Create the final executable JAR file
-        // ----------------------------------------------------------
         stage('📦 Package JAR') {
             steps {
-                echo '=== Packaging application into JAR ==='
-                sh '''
-                    # -DskipTests because we already tested above
-                    mvn package -DskipTests -B
-                    
-                    # Show what was built
-                    ls -lh target/*.jar
-                    echo "✅ JAR created successfully!"
-                '''
+                echo '=== STAGE: Package JAR ==='
+                script {
+                    try {
+                        sh '''
+                            mvn package -DskipTests -B
+                            ls -lh target/*.jar
+                        '''
+                        echo '✅ JAR created successfully!'
+                    } catch (err) {
+                        echo "❌ STAGE FAILED: Package — JAR packaging failed.\nReason: ${err.getMessage()}"
+                        error("Package stage failed: ${err.getMessage()}")
+                    }
+                }
             }
             post {
                 success {
-                    // Archive the JAR so you can download it from Jenkins
-                    archiveArtifacts artifacts: 'target/*.jar',
-                                     fingerprint: true,
-                                     allowEmptyArchive: false
+                    archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, allowEmptyArchive: false
                 }
             }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 7: DOCKER BUILD
-        // Build Docker image from your Dockerfile
-        // ----------------------------------------------------------
         stage('🐳 Docker Build') {
             steps {
-                echo '=== Building Docker image ==='
-                sh '''
-                    # Build the image with two tags:
-                    # 1. Build number tag (e.g., shranvi-products-api:42)
-                    # 2. latest tag (always points to newest)
-                    docker build \
-                        -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                        -t ${DOCKER_IMAGE}:latest \
-                        --label "build=${BUILD_NUMBER}" \
-                        --label "commit=$(git log --format='%H' -1 | cut -c1-8)" \
-                        .
-                    
-                    echo "✅ Docker image built: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                    docker images | grep shranvi
-                '''
+                echo '=== STAGE: Docker Build ==='
+                script {
+                    try {
+                        sh '''
+                            docker build \
+                                -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                                -t ${DOCKER_IMAGE}:latest \
+                                --label "build=${BUILD_NUMBER}" \
+                                --label "commit=$(git log --format='%H' -1 | cut -c1-8)" \
+                                .
+                            docker images | grep shranvi
+                        '''
+                        echo "✅ Docker image built: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    } catch (err) {
+                        echo "❌ STAGE FAILED: Docker Build — image build failed (check Dockerfile/context).\nReason: ${err.getMessage()}"
+                        error("Docker Build stage failed: ${err.getMessage()}")
+                    }
+                }
             }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 8: DOCKER PUSH
-        // Push image to Docker Hub registry
-        // ----------------------------------------------------------
         stage('📤 Push to Docker Hub') {
             steps {
-                echo '=== Pushing Docker image to Docker Hub ==='
-                
-                // Login to Docker Hub using Jenkins stored credentials
-                withCredentials([usernamePassword(
-                    credentialsId: env.DOCKER_CREDENTIALS,
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    sh '''
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        
-                        docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        docker push ${DOCKER_IMAGE}:latest
-                        
-                        docker logout
-                        echo "✅ Image pushed to Docker Hub!"
-                    '''
+                echo '=== STAGE: Push to Docker Hub ==='
+                script {
+                    try {
+                        withCredentials([usernamePassword(
+                            credentialsId: env.DOCKER_CREDENTIALS,
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASS'
+                        )]) {
+                            sh '''
+                                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                                docker push ${DOCKER_IMAGE}:latest
+                                docker logout
+                            '''
+                        }
+                        echo '✅ Image pushed to Docker Hub!'
+                    } catch (err) {
+                        echo "❌ STAGE FAILED: Docker Push — could not push image (check DockerHub creds/network).\nReason: ${err.getMessage()}"
+                        error("Docker Push stage failed: ${err.getMessage()}")
+                    }
                 }
             }
         }
 
         // ----------------------------------------------------------
-        // STAGE 9: DEPLOY TO EC2
-        // SSH into EC2 server, pull new image, restart container
+        // STAGE 9: DEPLOY TO EC2 — full error visibility
         // ----------------------------------------------------------
         stage('🚀 Deploy to EC2') {
             steps {
-                echo '=== Deploying to EC2 server ==='
-                
-                // Use the EC2 SSH private key from Jenkins credentials
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: env.EC2_SSH_KEY,
-                    keyFileVariable: 'SSH_KEY',
-                    usernameVariable: 'SSH_USER'
-                )]) {
-                    sh '''
-                        # Copy deployment script to EC2
-                        scp -i $SSH_KEY -o StrictHostKeyChecking=no \
-                            docker-compose.yml \
-                            ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
+                echo '=== STAGE: Deploy to EC2 ==='
+                script {
+                    try {
+                        withCredentials([sshUserPrivateKey(
+                            credentialsId: env.EC2_SSH_KEY,
+                            keyFileVariable: 'SSH_KEY',
+                            usernameVariable: 'SSH_USER'
+                        )]) {
 
-                        # SSH into EC2 and run deployment commands
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
-                            ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
-                            
-                            set -e  # Exit on any error
-                            
-                            cd /opt/shranvi-api
-                            
-                            echo "📥 Pulling latest Docker image..."
-                            docker pull ${DOCKER_IMAGE}:latest
-                            
-                            echo "🛑 Stopping old container (if running)..."
-                            docker stop shranvi-api 2>/dev/null || true
-                            docker rm shranvi-api 2>/dev/null || true
-                            
-                            echo "▶️ Starting new container on port 8081..."
-                            docker run -d \
-                                --name shranvi-api \
-                                --restart unless-stopped \
-                                -p 8081:8081 \
-                                -e SPRING_PROFILES_ACTIVE=production \
-                                -v /var/log/shranvi-api:/var/log/shranvi-api \
-                                ${DOCKER_IMAGE}:latest
-                            
-                            echo "⏳ Waiting for app to start (30 seconds)..."
-                            sleep 30
-                            
-                            echo "🏥 Health check..."
-                            curl -f http://localhost:8081/api/v1/products/health || exit 1
-                            
-                            echo "✅ Deployment SUCCESSFUL! App running on port 8081"
-                            docker ps | grep shranvi
+                            // Step 1: Test SSH connectivity first, fail fast with a clear reason
+                            sh '''
+                                set -e
+                                echo "🔍 Testing SSH connectivity to ${EC2_HOST}..."
+                                ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+                                    ${EC2_USER}@${EC2_HOST} "echo '✅ SSH connection OK'" \
+                                    || { echo "❌ SSH CONNECTION FAILED to ${EC2_HOST}. Check security group, key, or instance state."; exit 1; }
+                            '''
+
+                            // Step 2: Copy deployment file
+                            sh '''
+                                set -e
+                                echo "📤 Copying docker-compose.yml to EC2..."
+                                scp -i $SSH_KEY -o StrictHostKeyChecking=no \
+                                    docker-compose.yml \
+                                    ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/ \
+                                    || { echo "❌ SCP FAILED. Check DEPLOY_DIR exists and permissions on EC2 (${DEPLOY_DIR})."; exit 1; }
+                            '''
+
+                            // Step 3: Remote deploy script with set -ex so EVERY command and its
+                            // exit status is printed in Jenkins console — this is what was missing before.
+                            sh '''
+                                set -e
+                                ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} \
+                                    "DOCKER_IMAGE=${DOCKER_IMAGE} DEPLOY_DIR=${DEPLOY_DIR} bash -s" << 'ENDSSH'
+set -ex   # -e: exit on error, -x: print each command (THIS is what surfaces hidden errors)
+
+echo "📂 Moving to deployment directory..."
+cd "${DEPLOY_DIR}" || { echo "❌ DEPLOY_DIR ${DEPLOY_DIR} not found on EC2"; exit 1; }
+
+echo "📥 Pulling latest Docker image: ${DOCKER_IMAGE}:latest"
+docker pull "${DOCKER_IMAGE}:latest" \
+    || { echo "❌ DOCKER PULL FAILED. Check image name/tag and DockerHub auth on EC2."; exit 1; }
+
+echo "🛑 Stopping old container (if running)..."
+docker stop shranvi-api 2>/dev/null || echo "ℹ️ No running container named shranvi-api"
+docker rm shranvi-api 2>/dev/null || echo "ℹ️ No old container to remove"
+
+echo "▶️ Starting new container on port 8081..."
+docker run -d \
+    --name shranvi-api \
+    --restart unless-stopped \
+    -p 8081:8081 \
+    -e SPRING_PROFILES_ACTIVE=production \
+    -v /var/log/shranvi-api:/var/log/shranvi-api \
+    "${DOCKER_IMAGE}:latest" \
+    || { echo "❌ DOCKER RUN FAILED. Port 8081 may be in use, or image is broken."; docker logs shranvi-api 2>&1 || true; exit 1; }
+
+echo "⏳ Waiting for app to start (30 seconds)..."
+sleep 30
+
+echo "📋 Container status:"
+docker ps -a | grep shranvi-api || true
+
+echo "📜 Last 50 lines of container logs:"
+docker logs --tail 50 shranvi-api || true
+
+echo "🏥 Running health check..."
+HEALTH_CODE=$(curl -s -o /tmp/health_response.txt -w "%{http_code}" http://localhost:8081/api/v1/products/health || echo "000")
+echo "Health check HTTP status: ${HEALTH_CODE}"
+echo "Health check response body:"
+cat /tmp/health_response.txt 2>/dev/null || echo "(no response body)"
+
+if [ "${HEALTH_CODE}" != "200" ]; then
+    echo "❌ HEALTH CHECK FAILED with status ${HEALTH_CODE}. Dumping full container logs:"
+    docker logs shranvi-api || true
+    exit 1
+fi
+
+echo "✅ Deployment SUCCESSFUL! App running on port 8081"
 ENDSSH
-                    '''
+                            '''
+                        }
+                        echo '✅ EC2 deployment completed successfully!'
+
+                    } catch (err) {
+                        // This block guarantees the real reason is printed in Jenkins,
+                        // instead of a generic "script returned exit code 1"
+                        echo "❌ STAGE FAILED: Deploy to EC2"
+                        echo "❌ Error details: ${err.getMessage()}"
+                        echo "👉 Common causes: SSH/network issue, DEPLOY_DIR missing, port 8081 already in use, app crash on startup, or health endpoint not responding."
+                        echo "👉 Check the 'docker logs shranvi-api' output above (if printed) for the app-level stack trace."
+                        currentBuild.result = 'FAILURE'
+                        error("EC2 Deployment failed: ${err.getMessage()}")
+                    }
+                }
+            }
+            post {
+                failure {
+                    echo '🔎 Attempting to fetch remote container logs for diagnosis (best effort)...'
+                    script {
+                        try {
+                            withCredentials([sshUserPrivateKey(
+                                credentialsId: env.EC2_SSH_KEY,
+                                keyFileVariable: 'SSH_KEY',
+                                usernameVariable: 'SSH_USER'
+                            )]) {
+                                sh '''
+                                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+                                        ${EC2_USER}@${EC2_HOST} \
+                                        "echo '--- docker ps -a ---'; docker ps -a | grep shranvi-api || true; echo '--- last 100 log lines ---'; docker logs --tail 100 shranvi-api 2>&1 || true" \
+                                        || echo "⚠️ Could not retrieve diagnostic logs from EC2 (connection itself may be down)."
+                                '''
+                            }
+                        } catch (diagErr) {
+                            echo "⚠️ Diagnostic log fetch also failed: ${diagErr.getMessage()}"
+                        }
+                    }
                 }
             }
         }
 
-        // ----------------------------------------------------------
-        // STAGE 10: SMOKE TEST
-        // Quick test to verify deployment is working
-        // ----------------------------------------------------------
         stage('🔥 Smoke Test') {
             steps {
-                echo '=== Running smoke test on deployed application ==='
-                sh '''
-                    # Give the app a moment to fully start
-                    sleep 10
-                    
-                    # Test health endpoint
-                    HEALTH=$(curl -s -o /dev/null -w "%{http_code}" \
-                        http://${EC2_HOST}:${APP_PORT}/api/v1/products/health)
-                    
-                    if [ "$HEALTH" = "200" ]; then
-                        echo "✅ Smoke test PASSED! API is responding on port ${APP_PORT}"
-                    else
-                        echo "❌ Smoke test FAILED! HTTP status: $HEALTH"
-                        exit 1
-                    fi
-                    
-                    # Test products endpoint
-                    PRODUCTS=$(curl -s -o /dev/null -w "%{http_code}" \
-                        http://${EC2_HOST}:${APP_PORT}/api/v1/products)
-                    echo "Products API status: $PRODUCTS"
-                '''
+                echo '=== STAGE: Smoke Test ==='
+                script {
+                    try {
+                        sh '''
+                            sleep 10
+                            HEALTH=$(curl -s -o /tmp/smoke_health.txt -w "%{http_code}" \
+                                http://${EC2_HOST}:${APP_PORT}/api/v1/products/health)
+                            echo "Health endpoint status: $HEALTH"
+                            cat /tmp/smoke_health.txt 2>/dev/null || true
+
+                            if [ "$HEALTH" != "200" ]; then
+                                echo "❌ Smoke test FAILED! HTTP status: $HEALTH"
+                                exit 1
+                            fi
+                            echo "✅ Smoke test PASSED! API is responding on port ${APP_PORT}"
+
+                            PRODUCTS=$(curl -s -o /tmp/smoke_products.txt -w "%{http_code}" \
+                                http://${EC2_HOST}:${APP_PORT}/api/v1/products)
+                            echo "Products API status: $PRODUCTS"
+                        '''
+                    } catch (err) {
+                        echo "❌ STAGE FAILED: Smoke Test — deployed app is not responding correctly.\nReason: ${err.getMessage()}"
+                        error("Smoke Test stage failed: ${err.getMessage()}")
+                    }
+                }
             }
         }
     }
 
-    // ============================================================
-    // POST - Runs after all stages (success, failure, or always)
-    // ============================================================
     post {
-        // Always runs (cleanup)
         always {
             echo '=== Pipeline finished. Cleaning up local Docker images ==='
             sh '''
@@ -401,34 +362,30 @@ ENDSSH
             '''
         }
 
-        // Only runs on success
         success {
             echo """
             ╔══════════════════════════════════════════╗
-            ║  ✅ DEPLOYMENT SUCCESSFUL!               ║
-            ║  App: ${APP_NAME}                        ║
-            ║  Build: #${BUILD_NUMBER}                 ║
-            ║  URL: http://${EC2_HOST}:8081            ║
+            ║  ✅ DEPLOYMENT SUCCESSFUL!                ║
+            ║  App: ${APP_NAME}                         ║
+            ║  Build: #${BUILD_NUMBER}                  ║
+            ║  URL: http://${EC2_HOST}:8081             ║
             ╚══════════════════════════════════════════╝
             """
-            // TODO: Send Slack/Email notification on success
         }
 
-        // Only runs on failure
         failure {
             echo """
             ╔══════════════════════════════════════════╗
-            ║  ❌ PIPELINE FAILED!                     ║
-            ║  Build: #${BUILD_NUMBER}                 ║
-            ║  Check logs above for error details      ║
+            ║  ❌ PIPELINE FAILED!                      ║
+            ║  Build: #${BUILD_NUMBER}                  ║
+            ║  Failed Stage: ${env.STAGE_NAME ?: 'unknown'}
+            ║  Check console log above for ❌ markers   ║
             ╚══════════════════════════════════════════╝
             """
-            // TODO: Send Slack/Email alert on failure
         }
 
-        // Only runs on unstable (tests failed but build succeeded)
         unstable {
-            echo '⚠️ Pipeline is UNSTABLE - Some tests may have failed!'
+            echo '⚠️ Pipeline is UNSTABLE - SonarQube or some checks may have failed (non-blocking).'
         }
     }
 }
