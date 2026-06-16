@@ -22,11 +22,11 @@ pipeline {
         APP_PORT        = '8081'                    // Must NOT conflict with Flask (5000)
 
         // Docker Hub image name (change 'yourdockerhubusername' to yours)
-        DOCKER_IMAGE    = "yourdockerhubusername/shranvi-products-api"
+        DOCKER_IMAGE    = "ashish6310/shranvi-products-api"
         DOCKER_TAG      = "${BUILD_NUMBER}"
 
         // Jenkins Credentials IDs (you set these in Jenkins > Manage Credentials)
-        DOCKER_CREDENTIALS  = 'docker-hub-credentials'  // DockerHub login
+        DOCKER_CREDENTIALS  = 'dockerhub-creds'  // DockerHub login
         EC2_SSH_KEY         = 'ec2-ssh-private-key'     // Your EC2 .pem key
         SONAR_TOKEN         = 'sonarqube-token'
 
