@@ -303,84 +303,60 @@ pipeline {
         // STAGE 9: DEPLOY TO EC2
         // SSH into EC2 server, pull new image, restart container
         // ----------------------------------------------------------
-stage('🚀 Deploy to EC2') {
-    steps {
-        echo '=== Deploying to EC2 server ==='
+        stage('🚀 Deploy to EC2') {
+            steps {
+                echo '=== Deploying to EC2 server ==='
+                
+                // Use the EC2 SSH private key from Jenkins credentials
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: env.EC2_SSH_KEY,
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    sh '''
+                        # Copy deployment script to EC2
+                        scp -i $SSH_KEY -o StrictHostKeyChecking=no \
+                            docker-compose.yml \
+                            ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
 
-        withCredentials([
-            sshUserPrivateKey(
-                credentialsId: 'ec2-ssh-private-key',
-                keyFileVariable: 'SSH_KEY'
-            )
-        ]) {
-
-            sh """
-                set -xe
-
-                echo "===== Jenkins Variables ====="
-                echo "EC2_HOST=${EC2_HOST}"
-                echo "EC2_USER=${EC2_USER}"
-                echo "DEPLOY_DIR=${DEPLOY_DIR}"
-
-                echo "===== Testing SSH Connectivity ====="
-
-                ssh -vvv \
-                    -i \$SSH_KEY \
-                    -o StrictHostKeyChecking=no \
-                    -o ConnectTimeout=20 \
-                    ${EC2_USER}@${EC2_HOST} \
-                    "echo 'SSH SUCCESSFUL'; hostname"
-
-                echo "===== Creating Deploy Directory ====="
-
-                ssh -vvv \
-                    -i \$SSH_KEY \
-                    -o StrictHostKeyChecking=no \
-                    ${EC2_USER}@${EC2_HOST} \
-                    "sudo mkdir -p ${DEPLOY_DIR}"
-
-                echo "===== Copying docker-compose.yml ====="
-
-                scp -v \
-                    -i \$SSH_KEY \
-                    -o StrictHostKeyChecking=no \
-                    docker-compose.yml \
-                    ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/
-
-                echo "===== Verifying Docker ====="
-
-                ssh -vvv \
-                    -i \$SSH_KEY \
-                    -o StrictHostKeyChecking=no \
-                    ${EC2_USER}@${EC2_HOST} \
-                    "docker --version"
-
-                echo "===== Pulling Latest Image ====="
-
-                ssh -vvv \
-                    -i \$SSH_KEY \
-                    -o StrictHostKeyChecking=no \
-                    ${EC2_USER}@${EC2_HOST} \
-                    "
-                    cd ${DEPLOY_DIR}
-
-                    docker pull ashish6310/shranvi-products-api:latest
-
-                    docker stop shranvi-api || true
-                    docker rm shranvi-api || true
-
-                    docker run -d \
-                        --name shranvi-api \
-                        -p 8081:8081 \
-                        --restart unless-stopped \
-                        ashish6310/shranvi-products-api:latest
-                    "
-
-                echo "===== Deployment Complete ====="
-            """
+                        # SSH into EC2 and run deployment commands
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no \
+                            ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+                            
+                            set -e  # Exit on any error
+                            
+                            cd /opt/shranvi-api
+                            
+                            echo "📥 Pulling latest Docker image..."
+                            docker pull ${DOCKER_IMAGE}:latest
+                            
+                            echo "🛑 Stopping old container (if running)..."
+                            docker stop shranvi-api 2>/dev/null || true
+                            docker rm shranvi-api 2>/dev/null || true
+                            
+                            echo "▶️ Starting new container on port 8081..."
+                            docker run -d \
+                                --name shranvi-api \
+                                --restart unless-stopped \
+                                -p 8081:8081 \
+                                -e SPRING_PROFILES_ACTIVE=production \
+                                -v /var/log/shranvi-api:/var/log/shranvi-api \
+                                ${DOCKER_IMAGE}:latest
+                            
+                            echo "⏳ Waiting for app to start (30 seconds)..."
+                            sleep 30
+                            
+                            echo "🏥 Health check..."
+                            curl -f http://localhost:8081/api/v1/products/health || exit 1
+                            
+                            echo "✅ Deployment SUCCESSFUL! App running on port 8081"
+                            docker ps | grep shranvi
+ENDSSH
+                    '''
+                }
+            }
         }
-    }
-}
+
         // ----------------------------------------------------------
         // STAGE 10: SMOKE TEST
         // Quick test to verify deployment is working
