@@ -27,7 +27,7 @@ pipeline {
 
         // Jenkins Credentials IDs (you set these in Jenkins > Manage Credentials)
         DOCKER_CREDENTIALS  = 'dockerhub-creds'  // DockerHub login
-        EC2_SSH_KEY         = 'ec2-ssh-private-key'     // Your EC2 .pem key
+        EC2_SSH_KEY         = 'app-server-ssh-key'     // Your EC2 .pem key
         SONAR_TOKEN         = 'sonarqube-token'
 
         // EC2 Deployment Server
