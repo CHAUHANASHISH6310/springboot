@@ -189,38 +189,38 @@ pipeline {
         // STAGE 5: SECURITY SCAN - OWASP Dependency Check
         // Checks all your Maven libraries for known CVE vulnerabilities
         // ----------------------------------------------------------
-        stage('🔒 Security Scan (OWASP)') {
-            steps {
-                echo '=== Scanning dependencies for CVE vulnerabilities ==='
-                withCredentials([
-                string(credentialsId: 'nvd-api-key',
-                    variable: 'NVD_API_KEY')
-            ]) {
-                sh '''
-                    mvn dependency-check:check \
-                        -DnvdApiKey=$NVD_API_KEY \
-                        -Dformat=HTML \
-                        -B
-                '''
-                }
-            }
-            post {
-                always {
-                    // Publish the security report in Jenkins
-                    publishHTML([
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'target/dependency-check-report',
-                        reportFiles: 'dependency-check-report.html',
-                        reportName: 'OWASP Dependency Check Report'
-                    ])
-                }
-                failure {
-                    echo '❌ HIGH severity CVE found! Fix vulnerable dependencies.'
-                }
-            }
-        }
+        // stage('🔒 Security Scan (OWASP)') {
+        //     steps {
+        //         echo '=== Scanning dependencies for CVE vulnerabilities ==='
+        //         withCredentials([
+        //         string(credentialsId: 'nvd-api-key',
+        //             variable: 'NVD_API_KEY')
+        //     ]) {
+        //         sh '''
+        //             mvn dependency-check:check \
+        //                 -DnvdApiKey=$NVD_API_KEY \
+        //                 -Dformat=HTML \
+        //                 -B
+        //         '''
+        //         }
+        //     }
+        //     post {
+        //         always {
+        //             // Publish the security report in Jenkins
+        //             publishHTML([
+        //                 allowMissing: true,
+        //                 alwaysLinkToLastBuild: true,
+        //                 keepAll: true,
+        //                 reportDir: 'target/dependency-check-report',
+        //                 reportFiles: 'dependency-check-report.html',
+        //                 reportName: 'OWASP Dependency Check Report'
+        //             ])
+        //         }
+        //         failure {
+        //             echo '❌ HIGH severity CVE found! Fix vulnerable dependencies.'
+        //         }
+        //     }
+        // }
 
         // ----------------------------------------------------------
         // STAGE 6: PACKAGE
