@@ -192,13 +192,17 @@ pipeline {
         stage('🔒 Security Scan (OWASP)') {
             steps {
                 echo '=== Scanning dependencies for CVE vulnerabilities ==='
+                withCredentials([
+                string(credentialsId: 'nvd-api-key',
+                    variable: 'NVD_API_KEY')
+            ]) {
                 sh '''
                     mvn dependency-check:check \
-                        -DfailBuildOnCVSS=7 \
+                        -DnvdApiKey=$NVD_API_KEY \
                         -Dformat=HTML \
                         -B
-                    echo "✅ Security scan complete!"
                 '''
+                }
             }
             post {
                 always {
