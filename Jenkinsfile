@@ -563,15 +563,32 @@ ssh -o StrictHostKeyChecking=no \
         // STAGE 10: SMOKE TEST
         // Quick test to verify deployment is working
         // ----------------------------------------------------------
-     stage('🔥 Smoke Test') {
+  stage('🔥 Smoke Test') {
 
     steps {
 
-        sh '''
-            kubectl get pods -n shranvi
+        withCredentials([
+            string(credentialsId: 'aws-access-key',
+                   variable: 'AWS_ACCESS_KEY_ID'),
 
-            kubectl get svc -n shranvi
-        '''
+            string(credentialsId: 'aws-secret-key',
+                   variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+
+            sh '''
+                export AWS_DEFAULT_REGION=ap-south-1
+
+                aws eks update-kubeconfig \
+                  --region ap-south-1 \
+                  --name shranvi-cluster
+
+                kubectl get pods -n shranvi
+
+                kubectl get svc -n shranvi
+
+                kubectl get hpa -n shranvi
+            '''
+        }
     }
 }
     }
