@@ -332,11 +332,19 @@ stage('🚀 Deploy to EC2') {
         echo '=== Deploying to EC2 server ==='
 
         withCredentials([
-            sshUserPrivateKey(
-                credentialsId: env.EC2_SSH_KEY,
-                keyFileVariable: 'SSH_KEY'
-            )
-        ]) {
+    sshUserPrivateKey(
+        credentialsId: env.EC2_SSH_KEY,
+        keyFileVariable: 'SSH_KEY'
+    ),
+    string(
+        credentialsId: 'aws-access-key',
+        variable: 'AWS_ACCESS_KEY_ID'
+    ),
+    string(
+        credentialsId: 'aws-secret-key',
+        variable: 'AWS_SECRET_ACCESS_KEY'
+    )
+]) {
 
             sh """
                 set -xe
@@ -387,15 +395,22 @@ stage('🚀 Deploy to EC2') {
                     "
 
                 echo "=================================="
-                echo "STEP 5 - Pull Latest Image"
-                echo "=================================="
+               echo "STEP 5 - Login to ECR and Pull Latest Image"
 
-                ssh -o StrictHostKeyChecking=no \
-                    -i \$SSH_KEY \
-                    ${EC2_USER}@${EC2_HOST} \
-                    "
-                    docker pull ${ECR_IMAGE}:latest
-                    "
+ssh -o StrictHostKeyChecking=no \
+    -i \$SSH_KEY \
+    ${EC2_USER}@${EC2_HOST} \
+    "
+    export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    export AWS_DEFAULT_REGION=${AWS_REGION}
+
+    aws ecr get-login-password --region ${AWS_REGION} \
+    | docker login --username AWS --password-stdin \
+    ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+    docker pull ${ECR_IMAGE}:latest
+    "
 
                 echo "=================================="
                 echo "STEP 6 - Stop Old Container"
