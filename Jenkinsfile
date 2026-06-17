@@ -22,8 +22,12 @@ pipeline {
         APP_PORT        = '8081'                    // Must NOT conflict with Flask (5000)
 
         // Docker Hub image name (change 'yourdockerhubusername' to yours)
-        DOCKER_IMAGE    = "ashish6310/shranvi-products-api"
         DOCKER_TAG      = "${BUILD_NUMBER}"
+
+        AWS_REGION = "ap-south-1"
+        AWS_ACCOUNT_ID = "743320494757"
+        ECR_REPOSITORY = "shranvi-products-api"
+        ECR_IMAGE = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
 
         // Jenkins Credentials IDs (you set these in Jenkins > Manage Credentials)
         DOCKER_CREDENTIALS  = 'dockerhub-creds'  // DockerHub login
@@ -276,28 +280,43 @@ pipeline {
         // STAGE 8: DOCKER PUSH
         // Push image to Docker Hub registry
         // ----------------------------------------------------------
-        stage('📤 Push to Docker Hub') {
-            steps {
-                echo '=== Pushing Docker image to Docker Hub ==='
-                
-                // Login to Docker Hub using Jenkins stored credentials
-                withCredentials([usernamePassword(
-                    credentialsId: env.DOCKER_CREDENTIALS,
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    sh '''
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        
-                        docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        docker push ${DOCKER_IMAGE}:latest
-                        
-                        docker logout
-                        echo "✅ Image pushed to Docker Hub!"
-                    '''
-                }
-            }
+       stage('📤 Push to AWS ECR') {
+
+    steps {
+
+        withCredentials([
+            string(credentialsId: 'aws-access-key',
+                   variable: 'AWS_ACCESS_KEY_ID'),
+
+            string(credentialsId: 'aws-secret-key',
+                   variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+
+            sh '''
+                aws ecr get-login-password \
+                    --region ${AWS_REGION} \
+                | docker login \
+                    --username AWS \
+                    --password-stdin \
+                    ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                docker tag \
+                    ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                    ${ECR_IMAGE}:${DOCKER_TAG}
+
+                docker tag \
+                    ${DOCKER_IMAGE}:latest \
+                    ${ECR_IMAGE}:latest
+
+                docker push ${ECR_IMAGE}:${DOCKER_TAG}
+
+                docker push ${ECR_IMAGE}:latest
+
+                echo "ECR Push Successful"
+            '''
         }
+    }
+}
 
         // ----------------------------------------------------------
         // STAGE 9: DEPLOY TO EC2
