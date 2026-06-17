@@ -26,7 +26,7 @@ pipeline {
 
         AWS_REGION = "ap-south-1"
         AWS_ACCOUNT_ID = "743320494757"
-        ECR_REPOSITORY = "shranvi-products-api"
+        ECR_REPOSITORY = "shranvi"
         ECR_IMAGE = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
 
         // Jenkins Credentials IDs (you set these in Jenkins > Manage Credentials)
