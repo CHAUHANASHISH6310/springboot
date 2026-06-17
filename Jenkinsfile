@@ -322,30 +322,36 @@ stage('🚀 Deploy to EKS') {
 
     steps {
 
-        sh '''
-            echo "Updating kubeconfig"
+        withCredentials([
+            string(credentialsId: 'aws-access-key',
+                   variable: 'AWS_ACCESS_KEY_ID'),
 
-            aws eks update-kubeconfig \
-              --region ap-south-1 \
-              --name shranvi-cluster
+            string(credentialsId: 'aws-secret-key',
+                   variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
 
-            echo "Deploying Kubernetes manifests"
+            sh '''
+                export AWS_DEFAULT_REGION=ap-south-1
 
-            kubectl apply -f k8s/deployment.yaml
+                aws sts get-caller-identity
 
-            kubectl apply -f k8s/service.yaml
+                aws eks update-kubeconfig \
+                  --region ap-south-1 \
+                  --name shranvi-cluster
 
-            kubectl apply -f k8s/hpa.yaml
+                kubectl get nodes
 
-            echo "Waiting for rollout"
+                kubectl apply -f k8s/deployment.yaml
 
-            kubectl rollout status \
-              deployment/shranvi-api \
-              -n shranvi
-        '''
+                kubectl apply -f k8s/service.yaml
+
+                kubectl apply -f k8s/hpa.yaml
+
+                kubectl rollout status deployment/shranvi-api -n shranvi
+            '''
+        }
     }
 }
-
 stage('🚀 Update Image') {
 
     steps {
