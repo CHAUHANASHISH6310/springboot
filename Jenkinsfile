@@ -22,6 +22,7 @@ pipeline {
         APP_PORT        = '8081'                    // Must NOT conflict with Flask (5000)
 
         // Docker Hub image name (change 'yourdockerhubusername' to yours)
+        DOCKER_IMAGE = "shranvi-products-api"
         DOCKER_TAG      = "${BUILD_NUMBER}"
 
         AWS_REGION = "ap-south-1"
@@ -265,7 +266,7 @@ pipeline {
                     # 2. latest tag (always points to newest)
                     docker build \
                         -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                        -t ${DOCKER_IMAGE}:latest \
+                        -t ${ECR_IMAGE}:latest \
                         --label "build=${BUILD_NUMBER}" \
                         --label "commit=$(git log --format='%H' -1 | cut -c1-8)" \
                         .
@@ -305,7 +306,7 @@ pipeline {
                     ${ECR_IMAGE}:${DOCKER_TAG}
 
                 docker tag \
-                    ${DOCKER_IMAGE}:latest \
+                    ${ECR_IMAGE}:latest \
                     ${ECR_IMAGE}:latest
 
                 docker push ${ECR_IMAGE}:${DOCKER_TAG}
@@ -393,7 +394,7 @@ stage('🚀 Deploy to EC2') {
                     -i \$SSH_KEY \
                     ${EC2_USER}@${EC2_HOST} \
                     "
-                    docker pull ${DOCKER_IMAGE}:latest
+                    docker pull ${ECR_IMAGE}:latest
                     "
 
                 echo "=================================="
@@ -422,7 +423,7 @@ stage('🚀 Deploy to EC2') {
                         -p 8081:8081 \
                         -e SPRING_PROFILES_ACTIVE=production \
                         -v /var/log/shranvi-api:/var/log/shranvi-api \
-                        ${DOCKER_IMAGE}:latest
+                        ${ECR_IMAGE}:latest
                     "
 
                 echo "=================================="
