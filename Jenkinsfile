@@ -356,16 +356,31 @@ stage('🚀 Update Image') {
 
     steps {
 
-        sh """
-            kubectl set image \
-              deployment/shranvi-api \
-              shranvi-api=${ECR_IMAGE}:${BUILD_NUMBER} \
-              -n shranvi
+        withCredentials([
+            string(credentialsId: 'aws-access-key',
+                   variable: 'AWS_ACCESS_KEY_ID'),
 
-            kubectl rollout status \
-              deployment/shranvi-api \
-              -n shranvi
-        """
+            string(credentialsId: 'aws-secret-key',
+                   variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
+
+            sh '''
+                export AWS_DEFAULT_REGION=ap-south-1
+
+                aws eks update-kubeconfig \
+                    --region ap-south-1 \
+                    --name shranvi-cluster
+
+                kubectl set image \
+                    deployment/shranvi-api \
+                    shranvi-api=''' + "${ECR_IMAGE}:${BUILD_NUMBER}" + ''' \
+                    -n shranvi
+
+                kubectl rollout status \
+                    deployment/shranvi-api \
+                    -n shranvi
+            '''
+        }
     }
 }
 
