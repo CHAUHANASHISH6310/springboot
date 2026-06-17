@@ -31,7 +31,7 @@ public class ProductController {
         try {
             List<Product> products = productService.getAllProducts();
             ApiResponse<List<Product>> response = ApiResponse.success(
-                "Products fetched successfully", products
+                "Products fetched  ", products
             );
             response.setCount(products.size());
             logger.info("Returned {} products", products.size());
