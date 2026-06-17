@@ -559,8 +559,8 @@ ssh -o StrictHostKeyChecking=no \
             ║  Check logs above for error details      ║
             ╚══════════════════════════════════════════╝
             """
-            // TODO: Send Slack/Email alert on failure
-        }
+            // TODO: Send Slack/Email alert on failure s
+         }
 
         // Only runs on unstable (tests failed but build succeeded)
         unstable {
