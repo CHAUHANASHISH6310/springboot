@@ -36,7 +36,7 @@ pipeline {
         SONAR_TOKEN         = 'sonarqube-token'
 
         // EC2 Deployment Server
-        EC2_HOST        = '13.201.74.107'          // ← PUT YOUR EC2 IP HERE
+        EC2_HOST        = '13.203.205.39'          // ← PUT YOUR EC2 IP HERE
         EC2_USER        = 'ubuntu'                  // EC2 login user
         DEPLOY_DIR      = '/opt/shranvi-api'        // Deployment folder on EC2
 
