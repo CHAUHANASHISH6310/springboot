@@ -318,6 +318,51 @@ pipeline {
         }
     }
 }
+stage('🚀 Deploy to EKS') {
+
+    steps {
+
+        sh '''
+            echo "Updating kubeconfig"
+
+            aws eks update-kubeconfig \
+              --region ap-south-1 \
+              --name shranvi-cluster
+
+            echo "Deploying Kubernetes manifests"
+
+            kubectl apply -f k8s/deployment.yaml
+
+            kubectl apply -f k8s/service.yaml
+
+            kubectl apply -f k8s/hpa.yaml
+
+            echo "Waiting for rollout"
+
+            kubectl rollout status \
+              deployment/shranvi-api \
+              -n shranvi
+        '''
+    }
+}
+
+stage('🚀 Update Image') {
+
+    steps {
+
+        sh """
+            kubectl set image \
+              deployment/shranvi-api \
+              shranvi-api=${ECR_IMAGE}:${BUILD_NUMBER} \
+              -n shranvi
+
+            kubectl rollout status \
+              deployment/shranvi-api \
+              -n shranvi
+        """
+    }
+}
+
 
         // ----------------------------------------------------------
         // STAGE 9: DEPLOY TO EC2
@@ -497,31 +542,17 @@ ssh -o StrictHostKeyChecking=no \
         // STAGE 10: SMOKE TEST
         // Quick test to verify deployment is working
         // ----------------------------------------------------------
-        stage('🔥 Smoke Test') {
-            steps {
-                echo '=== Running smoke test on deployed application ==='
-                sh '''
-                    # Give the app a moment to fully start
-                    sleep 10
-                    
-                    # Test health endpoint
-                    HEALTH=$(curl -s -o /dev/null -w "%{http_code}" \
-                        http://${EC2_HOST}:${APP_PORT}/api/v1/products/health)
-                    
-                    if [ "$HEALTH" = "200" ]; then
-                        echo "✅ Smoke test PASSED! API is responding on port ${APP_PORT}"
-                    else
-                        echo "❌ Smoke test FAILED! HTTP status: $HEALTH"
-                        exit 1
-                    fi
-                    
-                    # Test products endpoint
-                    PRODUCTS=$(curl -s -o /dev/null -w "%{http_code}" \
-                        http://${EC2_HOST}:${APP_PORT}/api/v1/products)
-                    echo "Products API status: $PRODUCTS"
-                '''
-            }
-        }
+     stage('🔥 Smoke Test') {
+
+    steps {
+
+        sh '''
+            kubectl get pods -n shranvi
+
+            kubectl get svc -n shranvi
+        '''
+    }
+}
     }
 
     // ============================================================

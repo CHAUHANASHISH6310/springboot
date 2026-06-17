@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shranvi-api
+  namespace: shranvi
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: shranvi-api
+
+  template:
+    metadata:
+      labels:
+        app: shranvi-api
+
+    spec:
+      containers:
+      - name: shranvi-api
+
+image: 743320494757.dkr.ecr.ap-south-1.amazonaws.com/shranvi:BUILD_NUMBER
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8081
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
