@@ -1,6 +1,6 @@
 # ================================================================
 # DOCKER COMPOSE - Production deployment on EC2
-# Run with: docker-compose up -d
+# Run with: docker-compose up -d ssdsd
 # ================================================================
 
 version: '3.8'

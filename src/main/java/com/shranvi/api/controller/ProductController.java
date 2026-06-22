@@ -154,7 +154,7 @@ public class ProductController {
     public ResponseEntity<ApiResponse<String>> health() {
         long count = productService.getProductCount();
         return ResponseEntity.ok(
-            ApiResponse.success("API is healthy. Active products: " + count, "OK")
+            ApiResponse.success("API is healthy. Active products is: " + count, "OK")
         );
     }
 }
