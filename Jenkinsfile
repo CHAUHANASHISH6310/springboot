@@ -172,7 +172,7 @@ withCredentials([
                     script: '''
                         curl -s -o /dev/null \
                         -w "%{http_code}" \
-                        http://YOUR_LOAD_BALANCER_OR_SWARM_IP:8081/api/v1/products/health
+                        http://13.203.199.71:8081/api/v1/products/health
                     ''',
                     returnStdout: true
                 ).trim()
