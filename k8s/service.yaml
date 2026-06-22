@@ -3,14 +3,14 @@ kind: Service
 
 metadata:
   name: shranvi-service
-  namespace: shranvi
+    namespace: shranvi
 
-spec:
-  selector:
-    app: shranvi-api
+    spec:
+      selector:
+          app: shranvi-api
 
-  ports:
-  - port: 80
-    targetPort: 8081
+            ports:
+              - port: 80
+                  targetPort: 8081
 
-  type: LoadBalancer
+                    type: LoadBalancer
