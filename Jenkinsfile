@@ -56,12 +56,9 @@ stages {
         steps {
 
             withCredentials([
-                usernamePassword(
-                    credentialsId: 'aws-ecr-creds',
-                    usernameVariable: 'AWS_ACCESS_KEY_ID',
-                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                )
-            ]) {
+    string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+    string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+]) {
 
                 sh '''
                     export AWS_DEFAULT_REGION=${AWS_REGION}
@@ -83,18 +80,20 @@ stages {
     stage('Docker Swarm Canary Deployment') {
 
         steps {
-
-            withCredentials([
-                sshUserPrivateKey(
-                    credentialsId: 'ec2-ssh-key',
-                    keyFileVariable: 'SSH_KEY'
-                ),
-                usernamePassword(
-                    credentialsId: 'aws-ecr-creds',
-                    usernameVariable: 'AWS_ACCESS_KEY_ID',
-                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                )
-            ]) {
+withCredentials([
+    sshUserPrivateKey(
+        credentialsId: 'app-server-ssh-key',
+        keyFileVariable: 'SSH_KEY'
+    ),
+    string(
+        credentialsId: 'aws-access-key',
+        variable: 'AWS_ACCESS_KEY_ID'
+    ),
+    string(
+        credentialsId: 'aws-secret-key',
+        variable: 'AWS_SECRET_ACCESS_KEY'
+    )
+]) {
 
                 sh '''
                 ssh -o StrictHostKeyChecking=no \
@@ -130,12 +129,20 @@ stages {
 
         steps {
 
-            withCredentials([
-                sshUserPrivateKey(
-                    credentialsId: 'ec2-ssh-key',
-                    keyFileVariable: 'SSH_KEY'
-                )
-            ]) {
+          withCredentials([
+    sshUserPrivateKey(
+        credentialsId: 'app-server-ssh-key',
+        keyFileVariable: 'SSH_KEY'
+    ),
+    string(
+        credentialsId: 'aws-access-key',
+        variable: 'AWS_ACCESS_KEY_ID'
+    ),
+    string(
+        credentialsId: 'aws-secret-key',
+        variable: 'AWS_SECRET_ACCESS_KEY'
+    )
+]) {
 
                 sh '''
                 ssh -o StrictHostKeyChecking=no \
@@ -188,12 +195,20 @@ post {
 
         echo "Deployment Failed"
 
-        withCredentials([
-            sshUserPrivateKey(
-                credentialsId: 'ec2-ssh-key',
-                keyFileVariable: 'SSH_KEY'
-            )
-        ]) {
+       withCredentials([
+    sshUserPrivateKey(
+        credentialsId: 'app-server-ssh-key',
+        keyFileVariable: 'SSH_KEY'
+    ),
+    string(
+        credentialsId: 'aws-access-key',
+        variable: 'AWS_ACCESS_KEY_ID'
+    ),
+    string(
+        credentialsId: 'aws-secret-key',
+        variable: 'AWS_SECRET_ACCESS_KEY'
+    )
+]) {
 
             sh '''
             ssh -o StrictHostKeyChecking=no \
