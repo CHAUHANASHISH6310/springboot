@@ -7,7 +7,7 @@ environment {
     IMAGE_NAME = "743320494757.dkr.ecr.ap-south-1.amazonaws.com/shranvi"
     IMAGE_TAG = "${BUILD_NUMBER}"
 
-    SWARM_MANAGER = "35.154.67.86"
+    SWARM_MANAGER = "13.203.199.71"
     SSH_USER = "ubuntu"
 
     AWS_REGION = "ap-south-1"
